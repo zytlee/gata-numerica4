@@ -67,22 +67,21 @@ void killProcessByName(const char* filename)
 std::map<std::string, std::string> config{};
 TCHAR p[MAX_PATH];
 bool goEnd = false;
-std::atomic<ULONGLONG> lastLogTick{0};
 std::atomic<bool> stopWatchdog{false};
 std::ofstream logFile;
 
+// Monitors the headless process and restarts the cycle when it exits or crashes
 DWORD WatchdogThread(LPVOID pi) {
     PROCESS_INFORMATION processInfo = *(PROCESS_INFORMATION*)pi;
-    const ULONGLONG timeout = 120000; // 2 minutes
     while (!stopWatchdog.load()) {
-        if (WaitForSingleObject(processInfo.hProcess, 0) == WAIT_OBJECT_0)
+        DWORD res = WaitForSingleObject(processInfo.hProcess, 5000);
+        if (res == WAIT_OBJECT_0)
             break;
-        ULONGLONG now = GetTickCount64();
-        if (now - lastLogTick.load() > timeout) {
+        DWORD code = STILL_ACTIVE;
+        if (!GetExitCodeProcess(processInfo.hProcess, &code) || code != STILL_ACTIVE) {
             TerminateProcess(processInfo.hProcess, 0);
             break;
         }
-        Sleep(5000);
     }
     return 0;
 }
@@ -100,7 +99,6 @@ DWORD StdoutThread(LPVOID pi) {
         logFile.flush();
         std::cout.write(s.c_str(), s.size());
         std::cout.flush();
-        lastLogTick = GetTickCount64();
         if (check) {
             if (s.contains("CreatingParty")) { // proper !
                 if (!Inject(processInfo.hProcess, config["gameserver"].find(":\\") != std::string::npos ? config["gameserver"] : std::string((char*)p) + "\\" + config["gameserver"])) {
@@ -253,7 +251,6 @@ int main()
             CloseHandle(processInfo.hThread);
             goto end;
         }
-        lastLogTick = GetTickCount64();
         stopWatchdog = false;
         auto t = CreateThread(0, 0, StdoutThread, &processInfo, 0, 0);
         HANDLE w = CreateThread(0, 0, WatchdogThread, &processInfo, 0, 0);
