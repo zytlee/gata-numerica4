@@ -11,6 +11,7 @@
 #include "starfallPayload.h"
 #include "nullrhiPatch.h"
 #include <thread>
+#include <atomic>
 
 std::vector<std::string> split(const std::string& s, char delim) {
 	std::stringstream ss(s);
@@ -66,6 +67,25 @@ void killProcessByName(const char* filename)
 std::map<std::string, std::string> config{};
 TCHAR p[MAX_PATH];
 bool goEnd = false;
+std::atomic<ULONGLONG> lastLogTick{0};
+std::atomic<bool> stopWatchdog{false};
+std::ofstream logFile;
+
+DWORD WatchdogThread(LPVOID pi) {
+    PROCESS_INFORMATION processInfo = *(PROCESS_INFORMATION*)pi;
+    const ULONGLONG timeout = 120000; // 2 minutes
+    while (!stopWatchdog.load()) {
+        if (WaitForSingleObject(processInfo.hProcess, 0) == WAIT_OBJECT_0)
+            break;
+        ULONGLONG now = GetTickCount64();
+        if (now - lastLogTick.load() > timeout) {
+            TerminateProcess(processInfo.hProcess, 0);
+            break;
+        }
+        Sleep(5000);
+    }
+    return 0;
+}
 DWORD StdoutThread(LPVOID pi) {
     PROCESS_INFORMATION processInfo = *(PROCESS_INFORMATION *) pi;
     char chBuf[4096];
@@ -75,8 +95,13 @@ DWORD StdoutThread(LPVOID pi) {
         bool bSuccess = ReadFile(fnStdoutRd, chBuf, 4096, &dwRead, NULL);
         if (!bSuccess) break;
         if (dwRead == 0) continue;
+        std::string s(chBuf, dwRead);
+        logFile.write(s.c_str(), s.size());
+        logFile.flush();
+        std::cout.write(s.c_str(), s.size());
+        std::cout.flush();
+        lastLogTick = GetTickCount64();
         if (check) {
-            auto s = std::string(chBuf);
             if (s.contains("CreatingParty")) { // proper !
                 if (!Inject(processInfo.hProcess, config["gameserver"].find(":\\") != std::string::npos ? config["gameserver"] : std::string((char*)p) + "\\" + config["gameserver"])) {
                     TerminateProcess(processInfo.hProcess, 0);
@@ -138,6 +163,7 @@ int main()
         while (true) {}
     }
     f.close();
+    logFile.open("autohost.log", std::ios::app);
     SECURITY_ATTRIBUTES saAttr;
     saAttr.nLength = sizeof(SECURITY_ATTRIBUTES);
     saAttr.bInheritHandle = TRUE;
@@ -227,9 +253,16 @@ int main()
             CloseHandle(processInfo.hThread);
             goto end;
         }
+        lastLogTick = GetTickCount64();
+        stopWatchdog = false;
         auto t = CreateThread(0, 0, StdoutThread, &processInfo, 0, 0);
+        HANDLE w = CreateThread(0, 0, WatchdogThread, &processInfo, 0, 0);
         WaitForSingleObject(processInfo.hProcess, (DWORD)-1);
+        stopWatchdog = true;
+        WaitForSingleObject(w, (DWORD)-1);
+        CloseHandle(w);
         TerminateThread(t, 0);
+        CloseHandle(t);
         if (goEnd) goto end;
 
         CloseHandle(processInfo.hProcess);
@@ -243,4 +276,5 @@ end:
     TerminateProcess(Osh.hProcess, 0);
     CloseHandle(Osh.hProcess);
     CloseHandle(Osh.hThread);
+    if (logFile.is_open()) logFile.close();
 }
