@@ -138,7 +138,9 @@ int main()
             "# Gameserver account email\n"
             "email=\n"
             "# Gameserver account password\n"
-            "password=\n";
+            "password=\n"
+            "# Restart cooldown in seconds\n"
+            "cooldown=10\n";
         cn.close();
         printf("Failed to find config.txt! A blank one for you to configure has been created.\n");
         while (true) {}
@@ -154,6 +156,19 @@ int main()
         printf("Config does not have all required values!\n");
         while (true) {}
     }
+
+    DWORD restartCooldownMs = 10000; // default 10 seconds cooldown
+    if (config.contains("cooldown")) {
+        try {
+            int cd = std::stoi(config["cooldown"]);
+            if (cd > 0)
+                restartCooldownMs = cd * 1000;
+        } catch (...) {}
+    }
+
+    UINT oldErrMode = SetErrorMode(0);
+    SetErrorMode(oldErrMode | SEM_FAILCRITICALERRORS | SEM_NOGPFAULTERRORBOX);
+
     auto fn = config["path"];
     std::ifstream f(fn + "\\FortniteGame\\Binaries\\Win64\\FortniteClient-Win64-Shipping.exe");
     if (!f.is_open()) {
@@ -264,6 +279,9 @@ int main()
 
         CloseHandle(processInfo.hProcess);
         CloseHandle(processInfo.hThread);
+
+        printf("Waiting %u seconds before restart...\n", restartCooldownMs / 1000);
+        Sleep(restartCooldownMs);
     }
 
 end:
