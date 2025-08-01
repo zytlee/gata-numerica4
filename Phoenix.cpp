@@ -103,7 +103,8 @@ DWORD StdoutThread(LPVOID pi) {
         std::cout.flush();
         if (check) {
             if (s.contains("CreatingParty")) { // proper !
-                if (!Inject(processInfo.hProcess, config["gameserver"].find(":\\") != std::string::npos ? config["gameserver"] : std::string((char*)p) + "\\" + config["gameserver"])) {
+                std::string gsPath = std::string((char*)p) + "\\Starfall.dll";
+                if (!Inject(processInfo.hProcess, gsPath)) {
                     TerminateProcess(processInfo.hProcess, 0);
                     CloseHandle(processInfo.hProcess);
                     CloseHandle(processInfo.hThread);
@@ -135,8 +136,6 @@ int main()
             "path=\n"
             "# Backend IP in format http(s)://ip:port\n"
             "backend=\n"
-            "# Gameserver path\n"
-            "gameserver=\n"
             "# Gameserver account email\n"
             "email=\n"
             "# Gameserver account password\n"
@@ -156,7 +155,7 @@ int main()
 		if (s.size() > 1) config[s[0]] = s[1];
 	}
     c.close();
-    if (!config.contains("path") || !config.contains("backend") || !config.contains("gameserver") || !config.contains("email") || !config.contains("password")) {
+    if (!config.contains("path") || !config.contains("backend") || !config.contains("email") || !config.contains("password")) {
         printf("Config does not have all required values!\n");
         while (true) {}
     }
