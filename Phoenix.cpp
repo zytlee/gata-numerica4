@@ -6,6 +6,8 @@
 #include <vector>
 #include <sstream>
 #include <map>
+#include <algorithm>
+#include <cctype>
 #include <psapi.h>
 #include <TlHelp32.h>
 #include "starfallPayload.h"
@@ -101,7 +103,8 @@ DWORD StdoutThread(LPVOID pi) {
         std::cout.flush();
         if (check) {
             if (s.contains("CreatingParty")) { // proper !
-                if (!Inject(processInfo.hProcess, config["gameserver"].find(":\\") != std::string::npos ? config["gameserver"] : std::string((char*)p) + "\\" + config["gameserver"])) {
+                std::string gsPath = std::string((char*)p) + "\\Starfall.dll";
+                if (!Inject(processInfo.hProcess, gsPath)) {
                     TerminateProcess(processInfo.hProcess, 0);
                     CloseHandle(processInfo.hProcess);
                     CloseHandle(processInfo.hThread);
@@ -133,14 +136,14 @@ int main()
             "path=\n"
             "# Backend IP in format http(s)://ip:port\n"
             "backend=\n"
-            "# Gameserver path\n"
-            "gameserver=\n"
             "# Gameserver account email\n"
             "email=\n"
             "# Gameserver account password\n"
             "password=\n"
             "# Restart cooldown in seconds\n"
-            "cooldown=10\n";
+            "cooldown=10\n"
+            "# Launch headless or with client (true/false)\n"
+            "headless=true\n";
         cn.close();
         printf("Failed to find config.txt! A blank one for you to configure has been created.\n");
         while (true) {}
@@ -152,7 +155,7 @@ int main()
 		if (s.size() > 1) config[s[0]] = s[1];
 	}
     c.close();
-    if (!config.contains("path") || !config.contains("backend") || !config.contains("gameserver") || !config.contains("email") || !config.contains("password")) {
+    if (!config.contains("path") || !config.contains("backend") || !config.contains("email") || !config.contains("password")) {
         printf("Config does not have all required values!\n");
         while (true) {}
     }
@@ -164,6 +167,14 @@ int main()
             if (cd > 0)
                 restartCooldownMs = cd * 1000;
         } catch (...) {}
+    }
+
+    bool headless = true;
+    if (config.contains("headless")) {
+        std::string val = config["headless"];
+        std::transform(val.begin(), val.end(), val.begin(), [](unsigned char c){ return std::tolower(c); });
+        if (val == "false" || val == "0" || val == "no")
+            headless = false;
     }
 
     UINT oldErrMode = SetErrorMode(0);
@@ -235,10 +246,13 @@ int main()
         else {
             printf("Restarting server...\n");
         }
-        std::string params = fn + "\\FortniteGame\\Binaries\\Win64\\FortniteClient-Win64-Shipping.exe -epicapp=Fortnite -epicenv=Prod -epicportal -skippatchcheck -nobe -fromfl=eac -fltoken=3db3ba5dcbd2e16703f3978d -caldera=eyJhbGciOiJFUzI1NiIsInR5cCI6IkpXVCJ9.eyJhY2NvdW50X2lkIjoiYmU5ZGE1YzJmYmVhNDQwN2IyZjQwZWJhYWQ4NTlhZDQiLCJnZW5lcmF0ZWQiOjE2Mzg3MTcyNzgsImNhbGRlcmFHdWlkIjoiMzgxMGI4NjMtMmE2NS00NDU3LTliNTgtNGRhYjNiNDgyYTg2IiwiYWNQcm92aWRlciI6IkVhc3lBbnRpQ2hlYXQiLCJub3RlcyI6IiIsImZhbGxiYWNrIjpmYWxzZX0.VAWQB67RTxhiWOxx7DBjnzDnXyyEnX7OljJm-j2d88G_WgwQ9wrE6lwMEHZHjBd1ISJdUO1UVUqkfLdU5nofBQ -nullrhi -nosound -nosplash";
+        std::string params = fn + "\\FortniteGame\\Binaries\\Win64\\FortniteClient-Win64-Shipping.exe -epicapp=Fortnite -epicenv=Prod -epicportal -skippatchcheck -nobe -fromfl=eac -fltoken=3db3ba5dcbd2e16703f3978d -caldera=eyJhbGciOiJFUzI1NiIsInR5cCI6IkpXVCJ9.eyJhY2NvdW50X2lkIjoiYmU5ZGE1YzJmYmVhNDQwN2IyZjQwZWJhYWQ4NTlhZDQiLCJnZW5lcmF0ZWQiOjE2Mzg3MTcyNzgsImNhbGRlcmFHdWlkIjoiMzgxMGI4NjMtMmE2NS00NDU3LTliNTgtNGRhYjNiNDgyYTg2IiwiYWNQcm92aWRlciI6IkVhc3lBbnRpQ2hlYXQiLCJub3RlcyI6IiIsImZhbGxiYWNrIjpmYWxzZX0.VAWQB67RTxhiWOxx7DBjnzDnXyyEnX7OljJm-j2d88G_WgwQ9wrE6lwMEHZHjBd1ISJdUO1UVUqkfLdU5nofBQ";
+        if (headless) {
+            params += " -nullrhi -nosound -nosplash";
+        }
         PROCESS_INFORMATION processInfo;
         CreateProcessA((fn + "\\FortniteGame\\Binaries\\Win64\\FortniteClient-Win64-Shipping.exe").c_str(), (char*)(params + " -AUTH_LOGIN=" + config["email"] + " -AUTH_PASSWORD=" + config["password"] + " -AUTH_TYPE=epic -backend=" + config["backend"]).c_str(), NULL, NULL, true, CREATE_SUSPENDED, nullptr, fn.c_str(), &info, &processInfo);
-        if (!Inject(processInfo.hProcess, nullrhi)) {
+        if (headless && !Inject(processInfo.hProcess, nullrhi)) {
             TerminateProcess(processInfo.hProcess, 0);
             CloseHandle(processInfo.hProcess);
             CloseHandle(processInfo.hThread);
